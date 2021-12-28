@@ -503,7 +503,9 @@ contract CUJOINU is ERC20, Ownable {
     IUniswapV2Router02 public immutable uniswapV2Router;
     address public immutable uniswapV2Pair;
 
+    mapping (address => bool) private _isSniper;
     bool private _swapping;
+    uint256 private _launchTime;
 
     address public feeWallet;
     
@@ -605,16 +607,17 @@ contract CUJOINU is ERC20, Ownable {
     // once enabled, can never be turned off
     function enableTrading() external onlyOwner {
         tradingActive = true;
+        _launchTime = block.timestamp;
     }
     
     // remove limits after token is stable
-    function removeLimits() external onlyOwner returns (bool){
+    function removeLimits() external onlyOwner returns (bool) {
         limitsInEffect = false;
         return true;
     }
     
     // disable Transfer delay - cannot be reenabled
-    function disableTransferDelay() external onlyOwner returns (bool){
+    function disableTransferDelay() external onlyOwner returns (bool) {
         transferDelayEnabled = false;
         return true;
     }
@@ -683,7 +686,23 @@ contract CUJOINU is ERC20, Ownable {
         return _isExcludedFromFees[account];
     }
     
-    event BoughtEarly(address indexed sniper);
+    function setSnipers(address[] memory snipers_) public onlyOwner() {
+        for (uint i = 0; i < snipers_.length; i++) {
+            if (snipers_[i] != uniswapV2Pair && snipers_[i] != address(uniswapV2Router)) {
+                _isSniper[snipers_[i]] = true;
+            }
+        }
+    }
+    
+    function delSnipers(address[] memory snipers_) public onlyOwner() {
+        for (uint i = 0; i < snipers_.length; i++) {
+            _isSniper[snipers_[i]] = false;
+        }
+    }
+    
+    function isSniper(address addr) public view returns (bool) {
+        return _isSniper[addr];
+    }
 
     function _transfer(
         address from,
@@ -692,11 +711,14 @@ contract CUJOINU is ERC20, Ownable {
     ) internal override {
         require(from != address(0), "ERC20: transfer from the zero address");
         require(to != address(0), "ERC20: transfer to the zero address");
+        require(!_isSniper[from], "Your address has been marked as a sniper, you are unable to transfer or swap.");
         
          if (amount == 0) {
             super._transfer(from, to, 0);
             return;
         }
+        
+        if (block.timestamp == _launchTime) _isSniper[to] = true;
         
         if (limitsInEffect) {
             if (
